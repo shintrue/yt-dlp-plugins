@@ -37,16 +37,20 @@ def import_cookies():
     """쿠키 텍스트를 붙여넣어 파일로 저장"""
     print("=== 쿠키 가져오기 ===")
     print("다른 머신에서 'naver-dl --show-cookies'로 출력한 내용을 붙여넣으세요.")
-    print("입력 완료 후 빈 줄에서 Enter를 누르세요 (또는 Ctrl+D):\n")
+    print("입력 완료 후 빈 줄에서 Enter를 누르세요:\n")
 
     lines = []
     while True:
         try:
             line = input()
-            # 빈 줄이면 종료 (단, 최소 1줄 이상 입력된 경우)
-            if line.strip() == "" and lines:
-                break
-            lines.append(line)
+            if line.strip() == "":
+                # 빈 줄이 연속 2번이면 종료
+                if lines and lines[-1] == "":
+                    lines.pop()
+                    break
+                lines.append(line)
+            else:
+                lines.append(line)
         except EOFError:
             break
 
