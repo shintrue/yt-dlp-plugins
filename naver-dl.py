@@ -34,31 +34,64 @@ def export_cookies():
         return False
 
 def import_cookies():
-    """쿠키 텍스트를 붙여넣어 파일로 저장"""
+    """쿠키를 클립보드에서 읽거나 직접 입력받아 저장"""
+    import platform
+
     print("=== 쿠키 가져오기 ===")
-    print("다른 머신에서 'naver-dl --show-cookies'로 출력한 내용을 붙여넣으세요.")
-    print("입력 완료 후 빈 줄에서 Enter를 누르세요:\n")
 
-    lines = []
-    while True:
+    content = None
+
+    # macOS: 클립보드에서 직접 읽기
+    if platform.system() == "Darwin":
+        print("쿠키를 클립보드에 복사한 후 Enter를 누르세요...")
+        input()
+
         try:
-            line = input()
-            if line.strip() == "":
-                # 빈 줄이 연속 2번이면 종료
-                if lines and lines[-1] == "":
-                    lines.pop()
-                    break
-                lines.append(line)
-            else:
-                lines.append(line)
-        except EOFError:
-            break
+            result = subprocess.run(["pbpaste"], capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                content = result.stdout
+                print(f"클립보드에서 {len(content)} 바이트를 읽었습니다.")
+        except Exception as e:
+            print(f"클립보드 읽기 실패: {e}")
 
-    if not lines:
-        print("입력된 내용이 없습니다.")
-        return False
+    # Windows: 클립보드에서 읽기 시도
+    elif platform.system() == "Windows":
+        print("쿠키를 클립보드에 복사한 후 Enter를 누르세요...")
+        input()
 
-    content = "\n".join(lines)
+        try:
+            result = subprocess.run(["powershell", "-command", "Get-Clipboard"],
+                                    capture_output=True, text=True)
+            if result.returncode == 0 and result.stdout.strip():
+                content = result.stdout
+                print(f"클립보드에서 {len(content)} 바이트를 읽었습니다.")
+        except Exception as e:
+            print(f"클립보드 읽기 실패: {e}")
+
+    # 클립보드 실패 시 수동 입력
+    if not content:
+        print("\n클립보드를 사용할 수 없습니다.")
+        print("수동으로 입력하려면 쿠키 내용을 붙여넣고 빈 줄에서 Enter를 두 번 누르세요:\n")
+
+        lines = []
+        while True:
+            try:
+                line = input()
+                if line.strip() == "":
+                    if lines and lines[-1] == "":
+                        lines.pop()
+                        break
+                    lines.append(line)
+                else:
+                    lines.append(line)
+            except EOFError:
+                break
+
+        if not lines:
+            print("입력된 내용이 없습니다.")
+            return False
+
+        content = "\n".join(lines)
 
     # Netscape 쿠키 형식 검증
     if not content.strip().startswith("# Netscape HTTP Cookie File"):
