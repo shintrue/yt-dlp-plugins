@@ -33,6 +33,57 @@ def export_cookies():
         print("쿠키 추출 실패")
         return False
 
+def import_cookies():
+    """쿠키 텍스트를 붙여넣어 파일로 저장"""
+    print("=== 쿠키 가져오기 ===")
+    print("다른 머신에서 'naver-dl --show-cookies'로 출력한 내용을 붙여넣으세요.")
+    print("입력 완료 후 빈 줄에서 Enter를 누르세요:\n")
+
+    lines = []
+    while True:
+        try:
+            line = input()
+            if line.strip() == "":
+                # 빈 줄이 연속 2번이면 종료
+                if lines and lines[-1] == "":
+                    lines.pop()
+                    break
+                lines.append(line)
+            else:
+                lines.append(line)
+        except EOFError:
+            break
+
+    if not lines:
+        print("입력된 내용이 없습니다.")
+        return False
+
+    content = "\n".join(lines)
+
+    # Netscape 쿠키 형식 검증
+    if not content.strip().startswith("# Netscape HTTP Cookie File"):
+        print("\n경고: Netscape 쿠키 형식이 아닌 것 같습니다.")
+        print("계속 저장하시겠습니까? (y/N):", end=" ")
+        answer = input().strip().lower()
+        if answer != 'y':
+            print("취소되었습니다.")
+            return False
+
+    # 파일로 저장
+    try:
+        with open(DEFAULT_COOKIE_FILE, 'w', encoding='utf-8') as f:
+            f.write(content)
+            if not content.endswith('\n'):
+                f.write('\n')
+
+        size = os.path.getsize(DEFAULT_COOKIE_FILE)
+        print(f"\n쿠키 파일 저장됨: {DEFAULT_COOKIE_FILE} ({size} bytes)")
+        print("이제 'naver-dl'을 실행하면 이 쿠키를 자동으로 사용합니다.")
+        return True
+    except Exception as e:
+        print(f"저장 실패: {e}")
+        return False
+
 def get_urls_from_input():
     """대화형으로 URL 입력받기"""
     print("\n=== 네이버 프리미엄 m3u8 다운로더 ===")
@@ -309,12 +360,15 @@ def main():
   naver-dl --cookies cookie.txt # 쿠키 파일 사용
   naver-dl --export-cookies     # Firefox에서 쿠키 추출하여 저장
   naver-dl --show-cookies       # 저장된 쿠키 파일 내용 출력 (복사용)
+  naver-dl --import-cookies     # 다른 머신의 쿠키를 붙여넣어 저장
         """
     )
     parser.add_argument('--cookies', '-c', metavar='FILE',
                         help='쿠키 파일 경로 (Netscape 형식)')
     parser.add_argument('--export-cookies', '-e', action='store_true',
                         help=f'Firefox에서 쿠키를 추출하여 {DEFAULT_COOKIE_FILE}에 저장')
+    parser.add_argument('--import-cookies', '-i', action='store_true',
+                        help='다른 머신의 쿠키를 붙여넣어 저장')
     parser.add_argument('--show-cookies', '-s', action='store_true',
                         help='저장된 쿠키 파일 내용을 출력 (다른 머신에 복사용)')
 
@@ -323,6 +377,11 @@ def main():
     # 쿠키 내보내기 모드
     if args.export_cookies:
         export_cookies()
+        return
+
+    # 쿠키 가져오기 모드
+    if args.import_cookies:
+        import_cookies()
         return
 
     # 쿠키 보기 모드
@@ -357,8 +416,10 @@ def main():
     # 출력 디렉토리
     output_dir = get_output_dir()
 
-    # 쿠키 설정
+    # 쿠키 설정 (우선순위: 명령줄 옵션 > 기본 쿠키 파일 > Firefox)
     cookie_file = args.cookies
+    if not cookie_file and os.path.exists(DEFAULT_COOKIE_FILE):
+        cookie_file = DEFAULT_COOKIE_FILE
     cookie_source = f"파일: {cookie_file}" if cookie_file else "Firefox 브라우저"
 
     print(f"\n설정:")
