@@ -7,9 +7,23 @@ import sys
 import json
 import re
 import argparse
+import platform
 from pathlib import Path
 
 DEFAULT_COOKIE_FILE = os.path.expanduser("~/.naver_cookies.txt")
+
+def get_clipboard():
+    """클립보드 내용 읽기"""
+    if platform.system() == "Darwin":
+        result = subprocess.run(["pbpaste"], capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout
+    elif platform.system() == "Windows":
+        result = subprocess.run(["powershell", "-command", "Get-Clipboard"],
+                                capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout
+    return None
 
 def export_cookies():
     """Firefox에서 쿠키를 추출하여 파일로 저장"""
@@ -26,154 +40,53 @@ def export_cookies():
     if os.path.exists(DEFAULT_COOKIE_FILE):
         size = os.path.getsize(DEFAULT_COOKIE_FILE)
         print(f"쿠키 파일 저장됨: {DEFAULT_COOKIE_FILE} ({size} bytes)")
-        print(f"\n이 파일을 다른 머신에 복사하여 사용할 수 있습니다:")
-        print(f"  naver-dl --cookies {DEFAULT_COOKIE_FILE}")
         return True
     else:
         print("쿠키 추출 실패")
         return False
 
 def import_cookies():
-    """쿠키를 클립보드에서 읽거나 직접 입력받아 저장"""
-    import platform
-
+    """쿠키를 클립보드에서 읽어 저장"""
     print("=== 쿠키 가져오기 ===")
+    print("쿠키를 클립보드에 복사한 후 Enter를 누르세요...")
+    input()
 
-    content = None
-
-    # macOS: 클립보드에서 직접 읽기
-    if platform.system() == "Darwin":
-        print("쿠키를 클립보드에 복사한 후 Enter를 누르세요...")
-        input()
-
-        try:
-            result = subprocess.run(["pbpaste"], capture_output=True, text=True)
-            if result.returncode == 0 and result.stdout.strip():
-                content = result.stdout
-                print(f"클립보드에서 {len(content)} 바이트를 읽었습니다.")
-        except Exception as e:
-            print(f"클립보드 읽기 실패: {e}")
-
-    # Windows: 클립보드에서 읽기 시도
-    elif platform.system() == "Windows":
-        print("쿠키를 클립보드에 복사한 후 Enter를 누르세요...")
-        input()
-
-        try:
-            result = subprocess.run(["powershell", "-command", "Get-Clipboard"],
-                                    capture_output=True, text=True)
-            if result.returncode == 0 and result.stdout.strip():
-                content = result.stdout
-                print(f"클립보드에서 {len(content)} 바이트를 읽었습니다.")
-        except Exception as e:
-            print(f"클립보드 읽기 실패: {e}")
-
-    # 클립보드 실패 시 수동 입력
+    content = get_clipboard()
     if not content:
-        print("\n클립보드를 사용할 수 없습니다.")
-        print("수동으로 입력하려면 쿠키 내용을 붙여넣고 빈 줄에서 Enter를 두 번 누르세요:\n")
+        print("클립보드를 읽을 수 없습니다.")
+        return False
 
-        lines = []
-        while True:
-            try:
-                line = input()
-                if line.strip() == "":
-                    if lines and lines[-1] == "":
-                        lines.pop()
-                        break
-                    lines.append(line)
-                else:
-                    lines.append(line)
-            except EOFError:
-                break
-
-        if not lines:
-            print("입력된 내용이 없습니다.")
-            return False
-
-        content = "\n".join(lines)
+    print(f"클립보드에서 {len(content)} 바이트를 읽었습니다.")
 
     # Netscape 쿠키 형식 검증
     if not content.strip().startswith("# Netscape HTTP Cookie File"):
         print("\n경고: Netscape 쿠키 형식이 아닌 것 같습니다.")
         print("계속 저장하시겠습니까? (y/N):", end=" ")
-        answer = input().strip().lower()
-        if answer != 'y':
-            print("취소되었습니다.")
+        if input().strip().lower() != 'y':
             return False
 
-    # 파일로 저장
-    try:
-        with open(DEFAULT_COOKIE_FILE, 'w', encoding='utf-8') as f:
-            f.write(content)
-            if not content.endswith('\n'):
-                f.write('\n')
+    with open(DEFAULT_COOKIE_FILE, 'w', encoding='utf-8') as f:
+        f.write(content)
+        if not content.endswith('\n'):
+            f.write('\n')
 
-        size = os.path.getsize(DEFAULT_COOKIE_FILE)
-        print(f"\n쿠키 파일 저장됨: {DEFAULT_COOKIE_FILE} ({size} bytes)")
-        print("이제 'naver-dl'을 실행하면 이 쿠키를 자동으로 사용합니다.")
-        return True
-    except Exception as e:
-        print(f"저장 실패: {e}")
-        return False
-
-def get_urls_from_input():
-    """대화형으로 URL 입력받기"""
-    print("\n=== 네이버 프리미엄 m3u8 다운로더 ===")
-    print("m3u8 URL을 입력하세요 (여러 개는 줄바꿈 또는 | 로 구분)")
-    print("입력 완료 후 빈 줄에서 Enter를 누르세요:\n")
-
-    lines = []
-    while True:
-        try:
-            line = input()
-            if line.strip() == "":
-                break
-            lines.append(line)
-        except EOFError:
-            break
-
-    # 모든 입력을 합쳐서 파싱
-    full_input = "\n".join(lines)
-
-    # | 또는 줄바꿈으로 분리
-    urls = re.split(r'[\|\n]+', full_input)
-    urls = [u.strip() for u in urls if u.strip() and u.strip().startswith('http')]
-
-    return urls
-
-def get_referer():
-    """리퍼러 URL 입력받기"""
-    print("\n리퍼러 URL을 입력하세요 (선택사항, Enter로 건너뛰기):")
-    referer = input().strip()
-    return referer if referer else "https://contents.premium.naver.com/"
-
-def get_output_dir():
-    """출력 디렉토리 입력받기"""
-    print(f"\n저장 디렉토리 (Enter = 현재 디렉토리: {os.getcwd()}):")
-    output_dir = input().strip()
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-        return output_dir
-    return os.getcwd()
+    print(f"\n쿠키 파일 저장됨: {DEFAULT_COOKIE_FILE}")
+    return True
 
 def download_url(url, index, total, referer, output_dir, cookie_file=None):
     """단일 URL 다운로드"""
-    # URL에서 파일명 추출
     from urllib.parse import urlparse
     parsed = urlparse(url)
     base_name = os.path.splitext(os.path.basename(parsed.path))[0]
     output_file = os.path.join(output_dir, f"download_{index:02d}_{base_name[:8]}.mp4")
 
-    print(f"\n[{index}/{total}] 다운로드 중: {base_name[:30]}...")
+    print(f"\n[{index}/{total}] 다운로드 중...")
 
     cmd = [
         "yt-dlp",
-        "-v",
         "--enable-file-urls",
     ]
 
-    # 쿠키 옵션
     if cookie_file and os.path.exists(cookie_file):
         cmd.extend(["--cookies", cookie_file])
     else:
@@ -193,17 +106,11 @@ def download_url(url, index, total, referer, output_dir, cookie_file=None):
 
     if result.returncode != 0:
         print(f"  [오류] 다운로드 실패")
-        if "ERROR" in result.stderr:
-            error_lines = [l for l in result.stderr.split('\n') if 'ERROR' in l]
-            for e in error_lines[:3]:
-                print(f"    {e}")
         return None
 
-    # 실제 생성된 파일 찾기
     if os.path.exists(output_file):
         return output_file
 
-    # yt-dlp가 다른 이름으로 저장했을 수 있음
     pattern = f"download_{index:02d}_{base_name[:8]}*"
     matches = list(Path(output_dir).glob(pattern))
     if matches:
@@ -219,7 +126,7 @@ def analyze_file(filepath):
     file_size = os.path.getsize(filepath)
 
     # 작은 파일은 텍스트일 가능성
-    if file_size < 10000:  # 10KB 미만
+    if file_size < 10000:
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read(1000)
@@ -233,7 +140,6 @@ def analyze_file(filepath):
         except:
             pass
 
-    # ffprobe로 분석
     cmd = [
         "ffprobe",
         "-v", "quiet",
@@ -246,20 +152,12 @@ def analyze_file(filepath):
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        return {
-            'type': 'unknown',
-            'size': file_size,
-            'filepath': filepath
-        }
+        return {'type': 'unknown', 'size': file_size, 'filepath': filepath}
 
     try:
         data = json.loads(result.stdout)
     except:
-        return {
-            'type': 'unknown',
-            'size': file_size,
-            'filepath': filepath
-        }
+        return {'type': 'unknown', 'size': file_size, 'filepath': filepath}
 
     info = {
         'type': 'video',
@@ -273,9 +171,7 @@ def analyze_file(filepath):
         'audio_codec': None
     }
 
-    # 스트림 분석
-    streams = data.get('streams', [])
-    for stream in streams:
+    for stream in data.get('streams', []):
         codec_type = stream.get('codec_type')
         if codec_type == 'video':
             info['width'] = stream.get('width')
@@ -285,13 +181,11 @@ def analyze_file(filepath):
             info['has_audio'] = True
             info['audio_codec'] = stream.get('codec_name')
 
-    # 포맷 정보
     fmt = data.get('format', {})
     duration = fmt.get('duration')
     if duration:
         info['duration'] = float(duration)
 
-    # 비디오 스트림이 없으면 타입 변경
     if info['width'] is None:
         info['type'] = 'audio' if info['has_audio'] else 'unknown'
 
@@ -316,72 +210,159 @@ def format_duration(seconds):
         return f"{hours}:{minutes:02d}:{secs:02d}"
     return f"{minutes}:{secs:02d}"
 
-def print_results(results):
-    """분석 결과 출력"""
+def sanitize_filename(name):
+    """파일명에 사용할 수 없는 문자 제거"""
+    # 파일명에 사용할 수 없는 문자 제거
+    invalid_chars = r'[<>:"/\\|?*]'
+    name = re.sub(invalid_chars, '', name)
+    # 연속 공백 제거
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name[:100]  # 최대 100자
+
+def process_json_input():
+    """JSON 형식 입력 처리 (클립보드에서)"""
+    print("\n=== 네이버 프리미엄 m3u8 다운로더 ===")
+    print("JSON 데이터를 클립보드에 복사한 후 Enter를 누르세요...")
+    input()
+
+    content = get_clipboard()
+    if not content:
+        print("클립보드를 읽을 수 없습니다.")
+        return None
+
+    # JSON 파싱 시도
+    try:
+        data = json.loads(content.strip())
+    except json.JSONDecodeError:
+        # JSON이 아니면 기존 URL 방식으로 처리
+        return None
+
+    # 필수 필드 확인
+    if 'm3u8_list' not in data:
+        print("JSON에 'm3u8_list' 필드가 없습니다.")
+        return None
+
+    return data
+
+def select_best_video(videos, title):
+    """여러 영상 중 보관할 파일 선택"""
+    if not videos:
+        return None
+
+    # 플레이리스트(텍스트) 파일 자동 삭제
+    valid_videos = [v for v in videos if v and v.get('type') == 'video']
+    text_files = [v for v in videos if v and v.get('type') == 'text']
+
+    # 텍스트 파일 삭제
+    for t in text_files:
+        try:
+            os.remove(t['filepath'])
+            print(f"  삭제: {os.path.basename(t['filepath'])} (플레이리스트)")
+        except:
+            pass
+
+    if not valid_videos:
+        print("유효한 영상 파일이 없습니다.")
+        return None
+
+    if len(valid_videos) == 1:
+        return valid_videos[0]
+
+    # 중복 확인 (duration, size, height가 모두 같으면 중복)
+    def get_signature(v):
+        return (
+            round(v.get('duration') or 0),
+            v.get('size'),
+            v.get('height')
+        )
+
+    signatures = {}
+    for v in valid_videos:
+        sig = get_signature(v)
+        if sig not in signatures:
+            signatures[sig] = []
+        signatures[sig].append(v)
+
+    # 중복 파일 제거 (같은 시그니처 중 하나만 남김)
+    unique_videos = []
+    for sig, vlist in signatures.items():
+        unique_videos.append(vlist[0])
+        # 중복 파일 삭제
+        for v in vlist[1:]:
+            try:
+                os.remove(v['filepath'])
+                print(f"  삭제: {os.path.basename(v['filepath'])} (중복)")
+            except:
+                pass
+
+    if len(unique_videos) == 1:
+        return unique_videos[0]
+
+    # 여러 해상도가 있는 경우 선택
     print("\n" + "=" * 60)
-    print("다운로드 결과 분석")
+    print("다운로드 결과 - 파일 선택")
     print("=" * 60)
 
-    deletable = []
-    videos = []
-
-    for i, info in enumerate(results, 1):
-        if info is None:
-            print(f"\n[{i}] 다운로드 실패")
-            continue
-
-        filepath = info['filepath']
-        filename = os.path.basename(filepath)
-
-        print(f"\n[{i}] {filename}")
-        print(f"    경로: {filepath}")
-        print(f"    용량: {format_size(info['size'])}")
-
-        if info['type'] == 'text' and info.get('is_playlist'):
-            print(f"    타입: 텍스트 (m3u8 플레이리스트)")
-            print(f"    상태: 삭제 가능")
-            deletable.append(filepath)
-        elif info['type'] == 'video':
-            resolution = f"{info['width']}x{info['height']}" if info['width'] else "N/A"
-            audio_status = "있음" if info['has_audio'] else "없음"
-            print(f"    타입: 영상")
-            print(f"    해상도: {resolution}")
-            print(f"    길이: {format_duration(info['duration'])}")
-            print(f"    소리: {audio_status}")
-            print(f"    코덱: {info['video_codec'] or 'N/A'}" + (f" / {info['audio_codec']}" if info['audio_codec'] else ""))
-            videos.append(info)
-        elif info['type'] == 'audio':
-            print(f"    타입: 오디오")
-            print(f"    길이: {format_duration(info['duration'])}")
-            print(f"    코덱: {info['audio_codec'] or 'N/A'}")
+    # 해상도 기준 정렬 (700~1000 적정)
+    def sort_key(v):
+        h = v.get('height') or 0
+        # 700~1000 사이면 우선순위 높음
+        if 700 <= h <= 1000:
+            return (0, -h)  # 적정 범위 내에서는 높을수록 좋음
+        elif h > 1000:
+            return (1, h)   # 너무 큰 것은 후순위
         else:
-            print(f"    타입: 알 수 없음")
+            return (2, -h)  # 너무 작은 것도 후순위
 
-    # 삭제 가능한 파일 처리
-    if deletable:
-        print("\n" + "-" * 60)
-        print(f"삭제 가능한 파일 {len(deletable)}개 발견")
-        print("삭제하시겠습니까? (y/N):", end=" ")
-        answer = input().strip().lower()
-        if answer == 'y':
-            for f in deletable:
+    unique_videos.sort(key=sort_key)
+
+    for i, v in enumerate(unique_videos, 1):
+        resolution = f"{v['width']}x{v['height']}" if v.get('width') else "N/A"
+        duration = format_duration(v.get('duration'))
+        size = format_size(v.get('size', 0))
+        audio = "O" if v.get('has_audio') else "X"
+        recommended = " (권장)" if i == 1 else ""
+
+        print(f"  [{i}] {resolution} | {duration} | {size} | 소리:{audio}{recommended}")
+
+    print(f"  [0] 모두 삭제")
+    print(f"  [a] 모두 보관")
+
+    while True:
+        print(f"\n보관할 파일 번호 (1-{len(unique_videos)}, 0=삭제, a=모두):", end=" ")
+        choice = input().strip().lower()
+
+        if choice == '0':
+            # 모두 삭제
+            for v in unique_videos:
                 try:
-                    os.remove(f)
-                    print(f"  삭제됨: {os.path.basename(f)}")
-                except Exception as e:
-                    print(f"  삭제 실패: {os.path.basename(f)} - {e}")
+                    os.remove(v['filepath'])
+                    print(f"  삭제: {os.path.basename(v['filepath'])}")
+                except:
+                    pass
+            return None
 
-    # 요약
-    print("\n" + "=" * 60)
-    print("요약")
-    print("=" * 60)
-    print(f"총 {len(results)}개 URL 처리")
-    print(f"  - 영상: {len(videos)}개")
-    print(f"  - 삭제 가능: {len(deletable)}개")
+        if choice == 'a':
+            # 모두 보관 - 첫 번째만 title로 이름 변경
+            return unique_videos[0]
 
-    if videos:
-        total_size = sum(v['size'] for v in videos)
-        print(f"  - 총 영상 용량: {format_size(total_size)}")
+        try:
+            idx = int(choice)
+            if 1 <= idx <= len(unique_videos):
+                selected = unique_videos[idx - 1]
+                # 선택되지 않은 파일 삭제
+                for i, v in enumerate(unique_videos):
+                    if i != idx - 1:
+                        try:
+                            os.remove(v['filepath'])
+                            print(f"  삭제: {os.path.basename(v['filepath'])}")
+                        except:
+                            pass
+                return selected
+        except ValueError:
+            pass
+
+        print("잘못된 입력입니다.")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -389,82 +370,86 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 사용 예시:
-  naver-dl                      # 대화형 모드 (Firefox 쿠키 사용)
-  naver-dl --cookies cookie.txt # 쿠키 파일 사용
-  naver-dl --export-cookies     # Firefox에서 쿠키 추출하여 저장
-  naver-dl --show-cookies       # 저장된 쿠키 파일 내용 출력 (복사용)
-  naver-dl --import-cookies     # 다른 머신의 쿠키를 붙여넣어 저장
+  naver-dl                      # JSON 데이터로 다운로드 (클립보드)
+  naver-dl --export-cookies     # Firefox에서 쿠키 추출
+  naver-dl --import-cookies     # 쿠키 가져오기 (클립보드)
+  naver-dl --show-cookies       # 저장된 쿠키 출력
+
+JSON 입력 형식:
+{
+    "title": "영상 제목",
+    "referer": "https://...",
+    "m3u8_list": ["https://...m3u8", ...],
+    "cookies_netscape": "# Netscape HTTP Cookie File\\n..."
+}
         """
     )
     parser.add_argument('--cookies', '-c', metavar='FILE',
-                        help='쿠키 파일 경로 (Netscape 형식)')
+                        help='쿠키 파일 경로')
     parser.add_argument('--export-cookies', '-e', action='store_true',
-                        help=f'Firefox에서 쿠키를 추출하여 {DEFAULT_COOKIE_FILE}에 저장')
+                        help='Firefox에서 쿠키 추출')
     parser.add_argument('--import-cookies', '-i', action='store_true',
-                        help='다른 머신의 쿠키를 붙여넣어 저장')
+                        help='쿠키 가져오기 (클립보드)')
     parser.add_argument('--show-cookies', '-s', action='store_true',
-                        help='저장된 쿠키 파일 내용을 출력 (다른 머신에 복사용)')
+                        help='저장된 쿠키 출력')
 
     args = parser.parse_args()
 
-    # 쿠키 내보내기 모드
     if args.export_cookies:
         export_cookies()
         return
 
-    # 쿠키 가져오기 모드
     if args.import_cookies:
         import_cookies()
         return
 
-    # 쿠키 보기 모드
     if args.show_cookies:
-        cookie_file = args.cookies or DEFAULT_COOKIE_FILE
-        if os.path.exists(cookie_file):
-            print(f"=== 쿠키 파일: {cookie_file} ===")
-            print("아래 내용을 복사하여 다른 머신의 같은 경로에 저장하세요:\n")
-            with open(cookie_file, 'r') as f:
+        if os.path.exists(DEFAULT_COOKIE_FILE):
+            with open(DEFAULT_COOKIE_FILE, 'r') as f:
                 print(f.read())
         else:
-            print(f"쿠키 파일이 없습니다: {cookie_file}")
-            print(f"먼저 'naver-dl --export-cookies'로 쿠키를 추출하세요.")
+            print(f"쿠키 파일이 없습니다: {DEFAULT_COOKIE_FILE}")
         return
 
-    # URL 입력
-    urls = get_urls_from_input()
+    # JSON 입력 처리
+    data = process_json_input()
 
-    if not urls:
-        print("URL이 입력되지 않았습니다.")
+    if not data:
+        print("JSON 데이터가 없거나 잘못되었습니다.")
+        print("클립보드에 JSON을 복사한 후 다시 시도하세요.")
         sys.exit(1)
 
-    print(f"\n{len(urls)}개의 URL을 발견했습니다:")
-    for i, url in enumerate(urls, 1):
-        # URL 미리보기 (긴 경우 축약)
-        display_url = url[:80] + "..." if len(url) > 80 else url
-        print(f"  {i}. {display_url}")
+    title = data.get('title', 'download')
+    referer = data.get('referer', 'https://contents.premium.naver.com/')
+    m3u8_list = data.get('m3u8_list', [])
+    cookies_netscape = data.get('cookies_netscape')
 
-    # 리퍼러 입력
-    referer = get_referer()
+    print(f"\n제목: {title}")
+    print(f"리퍼러: {referer[:60]}...")
+    print(f"m3u8 URL: {len(m3u8_list)}개")
 
-    # 출력 디렉토리
-    output_dir = get_output_dir()
-
-    # 쿠키 설정 (우선순위: 명령줄 옵션 > 기본 쿠키 파일 > Firefox)
+    # 쿠키 처리
     cookie_file = args.cookies
-    if not cookie_file and os.path.exists(DEFAULT_COOKIE_FILE):
+    if cookies_netscape:
+        # JSON에 쿠키가 포함된 경우 임시 파일로 저장
         cookie_file = DEFAULT_COOKIE_FILE
-    cookie_source = f"파일: {cookie_file}" if cookie_file else "Firefox 브라우저"
+        with open(cookie_file, 'w', encoding='utf-8') as f:
+            f.write(cookies_netscape)
+        print(f"쿠키: JSON에서 로드됨")
+    elif not cookie_file and os.path.exists(DEFAULT_COOKIE_FILE):
+        cookie_file = DEFAULT_COOKIE_FILE
+        print(f"쿠키: {cookie_file}")
+    else:
+        print(f"쿠키: Firefox 브라우저")
 
-    print(f"\n설정:")
-    print(f"  - 리퍼러: {referer}")
-    print(f"  - 저장 위치: {output_dir}")
-    print(f"  - 쿠키: {cookie_source}")
+    output_dir = os.getcwd()
+    print(f"저장 위치: {output_dir}")
     print(f"\n다운로드를 시작합니다...")
 
     # 다운로드 실행
     downloaded_files = []
-    for i, url in enumerate(urls, 1):
-        filepath = download_url(url, i, len(urls), referer, output_dir, cookie_file)
+    for i, url in enumerate(m3u8_list, 1):
+        filepath = download_url(url, i, len(m3u8_list), referer, output_dir, cookie_file)
         downloaded_files.append(filepath)
 
     # 파일 분석
@@ -474,18 +459,40 @@ def main():
         info = analyze_file(filepath)
         results.append(info)
 
-    # 결과 출력
-    print_results(results)
+    # 최적 파일 선택
+    selected = select_best_video(results, title)
+
+    if selected:
+        # 파일명 변경
+        safe_title = sanitize_filename(title)
+        new_filename = f"{safe_title}.mp4"
+        new_filepath = os.path.join(output_dir, new_filename)
+
+        # 동일 파일명이 이미 존재하면 번호 추가
+        counter = 1
+        while os.path.exists(new_filepath):
+            new_filename = f"{safe_title}_{counter}.mp4"
+            new_filepath = os.path.join(output_dir, new_filename)
+            counter += 1
+
+        try:
+            os.rename(selected['filepath'], new_filepath)
+            print(f"\n최종 파일: {new_filename}")
+            print(f"  해상도: {selected.get('width')}x{selected.get('height')}")
+            print(f"  길이: {format_duration(selected.get('duration'))}")
+            print(f"  용량: {format_size(selected.get('size', 0))}")
+        except Exception as e:
+            print(f"파일명 변경 실패: {e}")
+            print(f"원본 파일: {selected['filepath']}")
 
     # patched m3u8 파일 정리
-    patched_files = list(Path(output_dir).glob("patched_*.m3u8"))
-    if patched_files:
-        print(f"\n임시 패치 파일 {len(patched_files)}개 삭제 중...")
-        for f in patched_files:
-            try:
-                os.remove(f)
-            except:
-                pass
+    for f in Path(output_dir).glob("patched_*.m3u8"):
+        try:
+            os.remove(f)
+        except:
+            pass
+
+    print("\n완료!")
 
 if __name__ == "__main__":
     try:
